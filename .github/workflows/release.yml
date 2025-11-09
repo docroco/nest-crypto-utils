@@ -2,122 +2,31 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag to release (e.g., v1.2.3)"
-        required: true
-        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  check-version:
-    name: Validate Tag and Version
-    runs-on: ubuntu-latest
-    outputs:
-      valid: ${{ steps.check.outputs.valid }}
-      version: ${{ steps.check.outputs.version }}
-      tag_name: ${{ steps.check.outputs.tag_name }}
-      already_published: ${{ steps.check.outputs.already_published }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: "22.x"
-          cache: "npm"
-
-      - name: Validate tag, ensure commit on main, and check publication
-        id: check
-        run: |
-          set -euo pipefail
-
-          # Determine tag name
-          TAG_NAME="${GITHUB_REF_NAME:-}"
-          if [ -z "$TAG_NAME" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME="${{ inputs.tag }}"
-          fi
-
-          echo "Detected tag: $TAG_NAME"
-          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
-
-          # Validate tag format vX.Y.Z
-          if ! echo "$TAG_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::Invalid tag format. Expected vX.Y.Z"
-            echo "valid=false" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-
-          VERSION="${TAG_NAME#v}"
-          echo "Parsed version from tag: $VERSION"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-          # Ensure we have latest refs
-          git fetch origin main --quiet
-          git fetch --tags --quiet
-
-          # Resolve tag commit and verify it's contained in main
-          TAG_SHA="$(git rev-parse "${TAG_NAME}^{commit}")"
-          echo "Tag commit: $TAG_SHA"
-          if git merge-base --is-ancestor "$TAG_SHA" "origin/main"; then
-            echo "Tag commit is on main."
-          else
-            echo "::error::Tag commit ($TAG_SHA) is not contained in origin/main"
-            echo "valid=false" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-
-          # Verify package.json version matches tag
-          PACKAGE_VERSION=$(node -p "require('./package.json').version")
-          echo "package.json version: $PACKAGE_VERSION"
-          if [ "$PACKAGE_VERSION" != "$VERSION" ]; then
-            echo "::error::package.json version ($PACKAGE_VERSION) does not match tag ($VERSION)"
-            echo "valid=false" >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-
-          # Check if version already published to npm (idempotency)
-          VERSIONS_JSON=$(npm view @docroco/nest-crypto-utils versions --json || echo "[]")
-          if echo "$VERSIONS_JSON" | grep -q "\"$VERSION\""; then
-            echo "Version $VERSION already published on npm."
-            echo "already_published=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Version $VERSION not yet published."
-            echo "already_published=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          echo "valid=true" >> "$GITHUB_OUTPUT"
-
   release:
     name: Build and Publish
     runs-on: ubuntu-latest
-    needs: check-version
-    if: needs.check-version.outputs.valid == 'true'
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: refs/tags/${{ needs.check-version.outputs.tag_name }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: "22.x"
           cache: "npm"
-          registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
         run: npm ci
@@ -125,7 +34,7 @@ jobs:
       - name: Run lint
         run: npm run lint
 
-      - name: Run tests
+      - name: Run unit tests with coverage
         run: npm run test:cov
 
       - name: Run E2E tests
@@ -134,58 +43,22 @@ jobs:
       - name: Build package
         run: npm run build
 
-      - name: Verify package contents
-        run: |
-          echo "=== Package contents ==="
-          ls -la dist/
-          echo "=== Verify required files ==="
-          test -f dist/index.js || (echo "Missing index.js" && exit 1)
-          test -f dist/index.mjs || (echo "Missing index.mjs" && exit 1)
-          test -f dist/index.d.ts || (echo "Missing index.d.ts" && exit 1)
-          echo "All required files present"
-
-      - name: Publish to npm
-        if: needs.check-version.outputs.already_published != 'true'
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Skip publish (already released)
-        if: needs.check-version.outputs.already_published == 'true'
-        run: echo "Skipping npm publish - version already exists on npm."
-
-      - name: Extract changelog for version
-        id: changelog
-        run: |
-          VERSION="${{ needs.check-version.outputs.version }}"
-          if [ -f CHANGELOG.md ]; then
-            # Robust extraction of the section for this version
-            CHANGELOG=$(awk -v ver="$VERSION" '
-              $0 ~ "^## " ver "$" {capture=1; next}
-              capture && $0 ~ "^## [0-9]+\\.[0-9]+\\.[0-9]+$" {capture=0}
-              capture {print}
-            ' CHANGELOG.md)
-            [ -n "$CHANGELOG" ] || CHANGELOG="Release version $VERSION"
-          else
-            CHANGELOG="Release version $VERSION"
-          fi
-          # Save to file to preserve multiline
-          echo "$CHANGELOG" > /tmp/changelog.txt
-
-      - name: Create GitHub Release
-        uses: actions/create-release@v1
+      - name: Publish packages with Changesets
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          publish: npm run release
+          createGithubReleases: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ needs.check-version.outputs.tag_name }}
-          release_name: ${{ needs.check-version.outputs.tag_name }}
-          body_path: /tmp/changelog.txt
-          draft: false
-          prerelease: false
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Upload dist artifacts
-        uses: actions/upload-artifact@v5
-        with:
-          name: dist-${{ needs.check-version.outputs.tag_name }}
-          path: dist/
-          retention-days: 90
+      - name: Announce published packages
+        if: steps.changesets.outputs.published == 'true'
+        run: |
+          echo "Changesets published the following packages:"
+          echo "${{ steps.changesets.outputs.publishedPackages }}"
+
+      - name: No publication detected
+        if: steps.changesets.outputs.published != 'true'
+        run: echo "No packages were published in this run."
