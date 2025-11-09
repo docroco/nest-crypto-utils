@@ -1,0 +1,181 @@
+name: Security Audit
+
+on:
+  schedule:
+    # Run daily at 2am UTC
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  dependency-audit:
+    name: Dependency Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        id: audit
+        run: |
+          echo "=== Running npm audit ==="
+          npm audit --json > audit-report.json || true
+          npm audit
+        continue-on-error: true
+
+      - name: Check for critical vulnerabilities
+        run: |
+          CRITICAL=$(cat audit-report.json | jq '.metadata.vulnerabilities.critical // 0')
+          HIGH=$(cat audit-report.json | jq '.metadata.vulnerabilities.high // 0')
+
+          echo "Critical vulnerabilities: $CRITICAL"
+          echo "High vulnerabilities: $HIGH"
+
+          if [ "$CRITICAL" -gt "0" ] || [ "$HIGH" -gt "0" ]; then
+            echo "::error::Found $CRITICAL critical and $HIGH high vulnerabilities"
+            exit 1
+          fi
+
+      - name: Check outdated dependencies
+        run: |
+          echo "=== Checking for outdated dependencies ==="
+          npm outdated || true
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-report-${{ github.run_number }}
+          path: audit-report.json
+          retention-days: 30
+
+  codeql-analysis:
+    name: CodeQL Security Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      security-events: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  license-check:
+    name: License Compliance Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check licenses
+        run: |
+          echo "=== Checking dependency licenses ==="
+          npx license-checker --summary
+
+          # Check for GPL licenses (not allowed for this project)
+          if npx license-checker --production --onlyAllow "MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;Unlicense;CC0-1.0" --failOn "GPL;AGPL;LGPL" 2>&1 | grep -q "FAIL"; then
+            echo "::error::Found dependencies with incompatible licenses"
+            npx license-checker --production --onlyAllow "MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;Unlicense;CC0-1.0" --failOn "GPL;AGPL;LGPL"
+            exit 1
+          fi
+          echo "All licenses are compatible"
+
+  create-issue-on-failure:
+    name: Create Issue on Security Failure
+    runs-on: ubuntu-latest
+    needs: [dependency-audit, codeql-analysis, secret-scan, license-check]
+    if: failure() && github.event_name == 'schedule'
+
+    steps:
+      - name: Create issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '🚨 Security Audit Failed';
+            const body = `## Security Audit Failure
+
+            The scheduled security audit has detected issues.
+
+            **Workflow:** ${context.workflow}
+            **Run:** ${context.runNumber}
+            **Triggered:** ${new Date().toISOString()}
+
+            ### Failed Jobs
+            - Dependency Audit: ${{ needs.dependency-audit.result }}
+            - CodeQL Analysis: ${{ needs.codeql-analysis.result }}
+            - Secret Scan: ${{ needs.secret-scan.result }}
+            - License Check: ${{ needs.license-check.result }}
+
+            ### Action Required
+            Please review the [workflow run](${context.payload.repository.html_url}/actions/runs/${context.runId}) for details.
+
+            ---
+            _This issue was automatically created by the Security Audit workflow._`;
+
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['security', 'automated']
+            });

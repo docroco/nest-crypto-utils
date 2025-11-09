@@ -1,0 +1,9 @@
+{
+  "extends": "@docroco/typescript-config/nestjs-lib.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node"
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
+}

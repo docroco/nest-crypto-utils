@@ -1,0 +1,53 @@
+version: 2
+updates:
+  # npm dependencies
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "Europe/Brussels"
+    open-pull-requests-limit: 5
+    assignees:
+      - walelito
+    labels:
+      - dependencies
+      - automated
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    versioning-strategy: increase
+    groups:
+      development-dependencies:
+        dependency-type: "development"
+        patterns:
+          - "@types/*"
+          - "eslint*"
+          - "prettier"
+          - "jest"
+          - "ts-*"
+      crypto-dependencies:
+        patterns:
+          - "jose"
+          - "bcrypt"
+          - "@node-rs/argon2"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "Europe/Brussels"
+    assignees:
+      - walelito
+    labels:
+      - github-actions
+      - dependencies
+    commit-message:
+      prefix: "chore(ci)"

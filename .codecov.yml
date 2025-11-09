@@ -1,0 +1,34 @@
+coverage:
+  status:
+    project:
+      default:
+        target: 90%
+        threshold: 1%
+        if_ci_failed: error
+    patch:
+      default:
+        target: 95%
+        threshold: 2%
+        if_ci_failed: error
+
+comment:
+  layout: "reach,diff,flags,tree"
+  behavior: default
+  require_changes: true
+  require_base: false
+  require_head: true
+
+ignore:
+  - "**/*.spec.ts"
+  - "**/*.d.ts"
+  - "test/**"
+  - "dist/**"
+  - "coverage/**"
+  - "node_modules/**"
+  - ".changeset/**"
+
+flags:
+  unittests:
+    paths:
+      - src/
+    carryforward: true

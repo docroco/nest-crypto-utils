@@ -1,0 +1,17 @@
+# Default owner for everything
+* @walelito
+
+# Crypto-critical paths require extra attention
+/src/services/ @walelito
+/src/keystore/ @walelito
+/src/errors/ @walelito
+
+# CI/CD and security
+/.github/ @walelito
+/SECURITY.md @walelito
+
+# Documentation
+/docs/ @walelito
+/README.md @walelito
+/CONTRIBUTING.md @walelito
+
