@@ -32,4 +32,28 @@ describe('PasswordService', () => {
     const ok = await svc.verify('secret', argonHash)
     expect(ok).toBe(true)
   })
+
+  it('honours explicit bcrypt cost override', async () => {
+    const svc = new PasswordService(12)
+    const hash = await svc.hash('secret', { bcryptCost: 5 })
+    const ok = await svc.verify('secret', hash)
+    expect(ok).toBe(true)
+  })
+
+  it('passes custom argon2 parameters when provided', async () => {
+    const svc = new PasswordService(12)
+    const hash = await svc.hash('secret', {
+      algorithm: 'argon2',
+      argon2: { timeCost: 1, memoryCost: 16 * 1024, parallelism: 2 },
+    })
+    const ok = await svc.verify('secret', hash)
+    expect(ok).toBe(true)
+  })
+
+  it('honours numeric bcrypt cost argument', async () => {
+    const svc = new PasswordService(4)
+    const hash = await svc.hash('secret', 6)
+    const ok = await svc.verify('secret', hash)
+    expect(ok).toBe(true)
+  })
 })

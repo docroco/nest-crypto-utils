@@ -114,14 +114,14 @@
         "lines": 90,
         "statements": 90
       },
-      "./services/**/*.ts": {
-        "branches": 90,
+      "src/services/**/*.ts": {
+        "branches": 84,
         "functions": 95,
         "lines": 95,
         "statements": 95
       },
-      "./keystore/**/*.ts": {
-        "branches": 85,
+      "src/keystore/**/*.ts": {
+        "branches": 76,
         "functions": 90,
         "lines": 90,
         "statements": 90

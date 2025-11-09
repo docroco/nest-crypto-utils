@@ -71,7 +71,9 @@ export class TestKeystoreBuilder {
     if (privPem && pubPem) {
       this.rsaPssKeys.set(kid, { privPem, pubPem })
     } else {
-      const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+      const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+      })
       this.rsaPssKeys.set(kid, {
         privPem: privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
         pubPem: publicKey.export({ format: 'pem', type: 'spki' }).toString(),
@@ -167,4 +169,3 @@ export class TestKeystoreBuilder {
     return env
   }
 }
-

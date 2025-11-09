@@ -164,6 +164,120 @@ describe('CryptoModule keystore options', () => {
     })
   })
 
+  it('registerAsync supports HMAC-only configuration', async () => {
+    const kid = 'K1'
+    const hmacKey = base64UrlEncode(Buffer.alloc(32, 1))
+    const envVars = {
+      CRYPTO_ACTIVE_KID: kid,
+      CRYPTO_ALLOWED_KIDS_AES: '',
+      CRYPTO_ALLOWED_KIDS_SIGN: '',
+      [`CRYPTO_HMAC_KEY_${kid}`]: hmacKey,
+    }
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        CryptoModule.registerAsync({
+          useFactory: async () => ({
+            enableSymmetric: false,
+            keystore: { env: { env: envVars } },
+          }),
+        }),
+      ],
+    }).compile()
+    const svc = moduleRef.get(CryptoService)
+    const mac = await svc.hmac('payload')
+    expect(mac.mac).toBeDefined()
+  })
+
+  it('registerAsync supports symmetric-only configuration', async () => {
+    const kid = 'K1'
+    const aesKey = base64UrlEncode(Buffer.alloc(32, 5))
+    const envVars = {
+      CRYPTO_ACTIVE_KID: kid,
+      CRYPTO_ALLOWED_KIDS_AES: '',
+      CRYPTO_ALLOWED_KIDS_SIGN: '',
+      [`CRYPTO_AES_KEY_${kid}`]: aesKey,
+    }
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        CryptoModule.registerAsync({
+          useFactory: async () => ({
+            enableHmac: false,
+            keystore: { env: { env: envVars } },
+          }),
+        }),
+      ],
+    }).compile()
+    const svc = moduleRef.get(CryptoService)
+    const envelope = await svc.encrypt('hello')
+    expect(envelope.ciphertext).toBeDefined()
+  })
+
+  it('registerAsync throws when enablePassword is false', async () => {
+    const kid = 'K1'
+    const envVars = {
+      CRYPTO_ACTIVE_KID: kid,
+      CRYPTO_ALLOWED_KIDS_AES: '',
+      CRYPTO_ALLOWED_KIDS_SIGN: '',
+      [`CRYPTO_AES_KEY_${kid}`]: base64UrlEncode(Buffer.alloc(32, 7)),
+    }
+    await expect(
+      Test.createTestingModule({
+        imports: [
+          CryptoModule.registerAsync({
+            useFactory: async () => ({
+              enablePassword: false,
+              keystore: { env: { env: envVars } },
+            }),
+          }),
+        ],
+      }).compile(),
+    ).rejects.toThrow('PasswordService requires enablePassword to be true')
+  })
+
+  it('registerAsync throws when enableSigning is false', async () => {
+    const kid = 'K1'
+    const envVars = {
+      CRYPTO_ACTIVE_KID: kid,
+      CRYPTO_ALLOWED_KIDS_AES: '',
+      CRYPTO_ALLOWED_KIDS_SIGN: '',
+      [`CRYPTO_AES_KEY_${kid}`]: base64UrlEncode(Buffer.alloc(32, 7)),
+    }
+    await expect(
+      Test.createTestingModule({
+        imports: [
+          CryptoModule.registerAsync({
+            useFactory: async () => ({
+              enableSigning: false,
+              keystore: { env: { env: envVars } },
+            }),
+          }),
+        ],
+      }).compile(),
+    ).rejects.toThrow('SigningService requires enableSigning to be true')
+  })
+
+  it('registerAsync throws when enableRandom is false', async () => {
+    const kid = 'K1'
+    const envVars = {
+      CRYPTO_ACTIVE_KID: kid,
+      CRYPTO_ALLOWED_KIDS_AES: '',
+      CRYPTO_ALLOWED_KIDS_SIGN: '',
+      [`CRYPTO_AES_KEY_${kid}`]: base64UrlEncode(Buffer.alloc(32, 7)),
+    }
+    await expect(
+      Test.createTestingModule({
+        imports: [
+          CryptoModule.registerAsync({
+            useFactory: async () => ({
+              enableRandom: false,
+              keystore: { env: { env: envVars } },
+            }),
+          }),
+        ],
+      }).compile(),
+    ).rejects.toThrow('RandomService requires enableRandom to be true')
+  })
+
   it('registerAsync with file keystore but missing directory throws', async () => {
     await expect(
       Test.createTestingModule({
@@ -178,5 +292,4 @@ describe('CryptoModule keystore options', () => {
       }).compile(),
     ).rejects.toThrow('File keystore directory is required')
   })
-
 })

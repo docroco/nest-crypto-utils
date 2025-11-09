@@ -1,10 +1,10 @@
 import { Test } from '@nestjs/testing'
 
-import { CryptoModule , KEY_STORE } from '../../src/module/crypto.module'
+import { CryptoModule, KEY_STORE } from '../../src/module/crypto.module'
 import { CryptoService } from '../../src/services/crypto.service'
 import { JsonWebEncryptionService } from '../../src/services/json-web-encryption.service'
 import { JsonWebSignatureService } from '../../src/services/json-web-signature.service'
-import { JsonWebTokenService} from '../../src/services/json-web-token.service'
+import { JsonWebTokenService } from '../../src/services/json-web-token.service'
 import { SigningService } from '../../src/services/signing.service'
 import { TestKeystoreBuilder } from '../utils/keystore-builders'
 
@@ -61,7 +61,7 @@ describe('Crypto workflow (e2e)', () => {
     // Simulate storage/retrieval (JSON serialize)
     const stored = JSON.stringify(envelope)
     expect(stored).toContain('"v":"1"')
-    
+
     const retrieved = JSON.parse(stored)
     expect(retrieved.kid).toBe('K1')
 
@@ -141,7 +141,7 @@ describe('Crypto workflow (e2e)', () => {
     // Verify
     const verified = await jws.verify(jwsToken, { expectedAlg: 'EdDSA' })
     expect(verified.payload).toBeInstanceOf(Uint8Array)
-    
+
     const parsed = JSON.parse(new TextDecoder().decode(verified.payload))
     expect(parsed.hello).toBe('world')
     expect(parsed.timestamp).toBe(payload.timestamp)
@@ -227,7 +227,6 @@ describe('Crypto workflow (e2e)', () => {
     })
 
     const results = await Promise.all(promises)
-    expect(results.every((r) => r === true)).toBe(true)
+    expect(results.every(r => r === true)).toBe(true)
   })
 })
-

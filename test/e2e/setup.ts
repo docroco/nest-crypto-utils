@@ -8,4 +8,3 @@ jest.setTimeout(30_000)
 
 // Set test environment variables if needed
 process.env.NODE_ENV = 'test'
-

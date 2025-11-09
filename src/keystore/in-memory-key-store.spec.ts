@@ -1,5 +1,7 @@
 import { generateKeyPairSync } from 'node:crypto'
 
+import { CryptoError } from '../errors/crypto.error'
+
 import { InMemoryKeyStore } from './in-memory-key-store'
 
 describe('InMemoryKeyStore', () => {
@@ -25,6 +27,21 @@ describe('InMemoryKeyStore', () => {
     const ks = new InMemoryKeyStore({ activeKid: 'K1' })
     ks.setSymmetricKey('K1', new Uint8Array(32))
     expect(ks.getAllowedKidsFor('HMAC-SHA256')).toContain('K1')
+  })
+
+  it('getAllowedKidsFor for signing algorithms returns signing set', () => {
+    const ks = new InMemoryKeyStore({
+      activeKid: 'K1',
+      allowedKidsSign: ['S1', 'S2'],
+    })
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+    ks.setEd25519Keys(
+      'K1',
+      privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
+      publicKey.export({ format: 'pem', type: 'spki' }).toString(),
+    )
+    const kids = ks.getAllowedKidsFor('Ed25519')
+    expect(kids).toEqual(expect.arrayContaining(['K1', 'S1', 'S2']))
   })
 
   it('setP256Keys stores and retrieves P-256 keys', () => {
@@ -101,5 +118,20 @@ describe('InMemoryKeyStore', () => {
     expect(second).toBeDefined()
 
     expect(first).not.toBe(second)
+  })
+
+  it('throws UNSUPPORTED_ALG for unsupported symmetric or HMAC algorithms', () => {
+    const ks = new InMemoryKeyStore({ activeKid: 'K1' })
+    ks.setSymmetricKey('K1', new Uint8Array(32))
+    ks.setHmacKey('K1', new Uint8Array(32))
+    expect(() =>
+      ks.getSymmetricKey(
+        'AES-128-GCM' as unknown as import('../types/alg').SymmetricAlg,
+        'K1',
+      ),
+    ).toThrow(CryptoError)
+    expect(() =>
+      ks.getHmacKey('HMAC-SHA1' as import('../types/alg').HmacAlg, 'K1'),
+    ).toThrow(CryptoError)
   })
 })

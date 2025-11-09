@@ -140,6 +140,28 @@ describe('CryptoService (AES-GCM, HMAC, KDFs)', () => {
     })
   })
 
+  it('rejects on AAD mismatch when lengths match', async () => {
+    const kid = 'K1'
+    const aesKey = Buffer.alloc(32, 1)
+    const hmacKey = Buffer.alloc(32, 2)
+    const env = {
+      CRYPTO_ACTIVE_KID: kid,
+      CRYPTO_ALLOWED_KIDS_AES: '',
+      CRYPTO_ALLOWED_KIDS_SIGN: '',
+      [`CRYPTO_AES_KEY_${kid}`]: base64UrlEncode(aesKey),
+      [`CRYPTO_HMAC_KEY_${kid}`]: base64UrlEncode(hmacKey),
+    }
+
+    await withEnv(env, async () => {
+      const ks = new EnvKeyStore()
+      const svc = new CryptoService(ks, {})
+      const envelope = await svc.encrypt('secret', { aad: 'meta' })
+      await expect(svc.decrypt(envelope, { aad: 'teta' })).rejects.toMatchObject({
+        code: CryptoErrorCode.DECRYPT_AUTH_FAILED,
+      })
+    })
+  })
+
   it('produces HMAC-SHA256 of expected length', async () => {
     const kid = 'K1'
     const aesKey = Buffer.alloc(32, 3)
@@ -158,6 +180,27 @@ describe('CryptoService (AES-GCM, HMAC, KDFs)', () => {
       const mac = await svc.hmac('abc')
       const macBytes = base64UrlDecode(mac.mac)
       expect(macBytes).toHaveLength(32)
+    })
+  })
+
+  it('rejects unsupported HMAC algorithms', async () => {
+    const kid = 'K1'
+    const aesKey = Buffer.alloc(32, 3)
+    const hmacKey = Buffer.alloc(32, 4)
+    const env = {
+      CRYPTO_ACTIVE_KID: kid,
+      CRYPTO_ALLOWED_KIDS_AES: '',
+      CRYPTO_ALLOWED_KIDS_SIGN: '',
+      [`CRYPTO_AES_KEY_${kid}`]: base64UrlEncode(aesKey),
+      [`CRYPTO_HMAC_KEY_${kid}`]: base64UrlEncode(hmacKey),
+    }
+
+    await withEnv(env, async () => {
+      const ks = new EnvKeyStore()
+      const svc = new CryptoService(ks, {})
+      await expect(
+        svc.hmac('data', { alg: 'HMAC-SHA1' as unknown as 'HMAC-SHA256' }),
+      ).rejects.toMatchObject({ code: CryptoErrorCode.UNSUPPORTED_ALG })
     })
   })
 
@@ -251,6 +294,30 @@ describe('CryptoService (AES-GCM, HMAC, KDFs)', () => {
     })
   })
 
+  it('encryptToString returns envelope JSON when canonical is false', async () => {
+    const kid = 'K1'
+    const aesKey = Buffer.alloc(32, 7)
+    const hmacKey = Buffer.alloc(32, 9)
+    const envVars = {
+      CRYPTO_ACTIVE_KID: kid,
+      CRYPTO_ALLOWED_KIDS_AES: '',
+      CRYPTO_ALLOWED_KIDS_SIGN: '',
+      [`CRYPTO_AES_KEY_${kid}`]: base64UrlEncode(aesKey),
+      [`CRYPTO_HMAC_KEY_${kid}`]: base64UrlEncode(hmacKey),
+    }
+    await withEnv(envVars, async () => {
+      const ks = new EnvKeyStore()
+      const svc = new CryptoService(ks, {})
+      const json = await svc.encryptToString('data')
+      const parsed = JSON.parse(json)
+      expect(parsed).toMatchObject({
+        v: '1',
+        alg: 'AES-256-GCM',
+        kid,
+      })
+    })
+  })
+
   it('decryptFromString rejects invalid JSON or shape', async () => {
     const kid = 'K1'
     const aesKey = Buffer.alloc(32, 7)
@@ -296,6 +363,28 @@ describe('CryptoService (AES-GCM, HMAC, KDFs)', () => {
       await expect(
         svc.decryptToString(envl, { encoding: 'utf8', strictUtf8: false }),
       ).resolves.toBeDefined()
+    })
+  })
+
+  it('decryptToString falls back to UTF-8 for unknown encoding', async () => {
+    const kid = 'K1'
+    const aesKey = Buffer.alloc(32, 7)
+    const hmacKey = Buffer.alloc(32, 9)
+    const env = {
+      CRYPTO_ACTIVE_KID: kid,
+      CRYPTO_ALLOWED_KIDS_AES: '',
+      CRYPTO_ALLOWED_KIDS_SIGN: '',
+      [`CRYPTO_AES_KEY_${kid}`]: base64UrlEncode(aesKey),
+      [`CRYPTO_HMAC_KEY_${kid}`]: base64UrlEncode(hmacKey),
+    }
+    await withEnv(env, async () => {
+      const ks = new EnvKeyStore()
+      const svc = new CryptoService(ks, {})
+      const envelope = await svc.encrypt('payload')
+      const out = await svc.decryptToString(envelope, {
+        encoding: 'unknown' as unknown as 'utf8',
+      })
+      expect(out).toBe('payload')
     })
   })
 

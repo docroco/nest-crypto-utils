@@ -11,4 +11,3 @@ describe('package barrel exports', () => {
     expect(pkg.isEnvelopeV1).toBeInstanceOf(Function)
   })
 })
-

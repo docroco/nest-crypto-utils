@@ -96,6 +96,27 @@ describe('CryptoStreamService', () => {
     })
   })
 
+  it('supports Uint8Array AAD inputs', () => {
+    const kid = 'K1'
+    const env = {
+      CRYPTO_ACTIVE_KID: kid,
+      CRYPTO_ALLOWED_KIDS_AES: '',
+      CRYPTO_ALLOWED_KIDS_SIGN: '',
+      [`CRYPTO_AES_KEY_${kid}`]: base64UrlEncode(Buffer.alloc(32, 6)),
+    }
+    withEnv(env, () => {
+      const ks = new EnvKeyStore()
+      const svc = new CryptoStreamService(ks)
+      const aad = new Uint8Array([1, 2, 3, 4])
+      const { meta, cipher } = svc.createEncryptStream({ aad })
+      const ct = Buffer.concat([cipher.update('hi'), cipher.final()])
+      const { tag } = svc.finalizeEncryptStream(meta, cipher)
+      const decipher = svc.createDecryptStream({ ...meta, tag })
+      const out = Buffer.concat([decipher.update(ct), decipher.final()])
+      expect(out.toString('utf8')).toBe('hi')
+    })
+  })
+
   it('HMAC streaming determinism', () => {
     const kid = 'K1'
     const env = {

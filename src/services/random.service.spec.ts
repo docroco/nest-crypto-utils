@@ -70,6 +70,11 @@ describe('RandomService IDs', () => {
     expect(s3.includes('.')).toBe(true)
   })
 
+  it('randomString supports combined symbol configuration', () => {
+    const s = svc.randomString({ hyphenAndUnderscore: true, dot: true, space: true }, 12)
+    expect(/[-_. ]/.test(s)).toBe(true)
+  })
+
   it('randomString with custom characters only', () => {
     const s = svc.randomString({ characters: '!?' }, 12)
     expect(s).toHaveLength(12)
@@ -83,6 +88,24 @@ describe('RandomService IDs', () => {
     expect(/^[a-z0-9]{6}$/.test(s2)).toBe(true)
     const s3 = svc.randomString(NanoidStringEnum.UPPERCASE_NUMERIC, 6)
     expect(/^[A-Z0-9]{6}$/.test(s3)).toBe(true)
+  })
+
+  it('nanoid lowercase preset produces lowercase letters', () => {
+    const s = svc.randomString(NanoidStringEnum.LOWERCASE, 8)
+    expect(/^[a-z]{8}$/.test(s)).toBe(true)
+  })
+
+  it('nanoid uppercase preset produces uppercase letters', () => {
+    const s = svc.randomString(NanoidStringEnum.UPPERCASE, 8)
+    expect(/^[A-Z]{8}$/.test(s)).toBe(true)
+  })
+
+  it('randomString uses custom characters when provided', () => {
+    const s = svc.randomString(
+      { characters: '@#', numeric: false, lowercase: false, uppercase: false },
+      6,
+    )
+    expect(/^[#@]{6}$/.test(s)).toBe(true)
   })
 
   it('generateSecret() base64url returns requested number of bytes', async () => {

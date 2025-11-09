@@ -1,8 +1,7 @@
-/* eslint-disable unicorn/prefer-module -- convenience */
-/* eslint-disable ts/no-require-imports -- convenience */
 /* eslint-disable node/prefer-global/buffer -- convenience */
 import { generateKeyPairSync } from 'node:crypto'
 
+import { CryptoErrorCode } from '../errors/crypto.error'
 import { EnvKeyStore } from '../keystore/env-key-store'
 
 import { SigningService } from './signing.service'
@@ -141,8 +140,42 @@ describe('SigningService', () => {
       const svc = new SigningService(ks, { maxSigningInputSize: 100 })
       const largeInput = Buffer.alloc(200)
       await expect(svc.sign(largeInput)).rejects.toMatchObject({
-        code: require('../errors/crypto.error').CryptoErrorCode.SIZE_LIMIT_EXCEEDED,
+        code: CryptoErrorCode.SIZE_LIMIT_EXCEEDED,
       })
+    })
+  })
+
+  it('throws on unsupported signing algorithms', async () => {
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+    const kid = 'K1'
+    const env = {
+      CRYPTO_ACTIVE_KID: kid,
+      CRYPTO_ALLOWED_KIDS_AES: '',
+      CRYPTO_ALLOWED_KIDS_SIGN: '',
+      [`CRYPTO_ED25519_PRIV_PEM_${kid}`]: privateKey
+        .export({ format: 'pem', type: 'pkcs8' })
+        .toString(),
+      [`CRYPTO_ED25519_PUB_PEM_${kid}`]: publicKey
+        .export({ format: 'pem', type: 'spki' })
+        .toString(),
+    }
+
+    await withEnv(env, async () => {
+      const ks = new EnvKeyStore()
+      const svc = new SigningService(ks, {})
+      await expect(
+        svc.sign('data', {
+          alg: 'RSA-OAEP-256' as unknown as import('../types/alg').SignAlg,
+        }),
+      ).rejects.toMatchObject({ code: CryptoErrorCode.UNSUPPORTED_ALG })
+      await expect(
+        svc.verify('data', {
+          v: '1',
+          alg: 'RSA-OAEP-256' as unknown as import('../types/alg').SignAlg,
+          kid,
+          sig: 'Invalid',
+        }),
+      ).rejects.toMatchObject({ code: CryptoErrorCode.UNSUPPORTED_ALG })
     })
   })
 })

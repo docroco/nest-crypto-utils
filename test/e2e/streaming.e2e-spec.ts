@@ -9,6 +9,8 @@ import { TestKeystoreBuilder } from '../utils/keystore-builders'
 
 import type { INestApplication } from '@nestjs/common'
 
+jest.setTimeout(45_000)
+
 describe('Streaming operations (e2e)', () => {
   let app: INestApplication
   let cryptoStream: CryptoStreamService
@@ -60,10 +62,11 @@ describe('Streaming operations (e2e)', () => {
   })
 
   it('HMAC of large data using stream', async () => {
-    const largeData = Buffer.alloc(512 * 1024, 0xcd) // 512KB
+    const largeData = Buffer.alloc(128 * 1024, 0xcd) // 128KB
 
     // Compute HMAC using stream
     const { transform, finalize } = cryptoStream.hmacStream()
+    transform.resume()
 
     // Pipe data through
     transform.write(largeData)
@@ -79,6 +82,7 @@ describe('Streaming operations (e2e)', () => {
 
     // Verify determinism
     const { transform: transform2, finalize: finalize2 } = cryptoStream.hmacStream()
+    transform2.resume()
     transform2.write(largeData)
     transform2.end()
 

@@ -175,13 +175,20 @@ describe('encoding utilities', () => {
     it('handles various padding scenarios', () => {
       // Length % 4 === 0 (no padding needed)
       expect(() => base64UrlDecode('AQIDBA')).not.toThrow()
-      
+
       // Length % 4 === 2 (needs 2 padding)
       expect(() => base64UrlDecode('QQ')).not.toThrow()
-      
+
       // Length % 4 === 3 (needs 1 padding)
       expect(() => base64UrlDecode('QQE')).not.toThrow()
     })
+
+    it('wraps Buffer decoding errors', () => {
+      const spy = jest.spyOn(Buffer, 'from').mockImplementation(() => {
+        throw new Error('boom')
+      })
+      expect(() => base64UrlDecode('QQ')).toThrow(/Failed to decode base64url/)
+      spy.mockRestore()
+    })
   })
 })
-

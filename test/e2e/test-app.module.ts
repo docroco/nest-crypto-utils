@@ -18,4 +18,3 @@ import { CryptoModule } from '../../src/module/crypto.module'
   ],
 })
 export class TestAppModule {}
-

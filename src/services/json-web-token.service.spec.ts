@@ -76,6 +76,33 @@ describe('JsonWebTokenService', () => {
     })
   })
 
+  it('signs and verifies JWT with PS256', async () => {
+    const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 3072 })
+    const kid = 'K1'
+    const env = {
+      CRYPTO_ACTIVE_KID: kid,
+      CRYPTO_ALLOWED_KIDS_AES: '',
+      CRYPTO_ALLOWED_KIDS_SIGN: '',
+      [`CRYPTO_RSAPS_PRIV_${kid}`]: privateKey
+        .export({ format: 'pem', type: 'pkcs1' })
+        .toString(),
+      [`CRYPTO_RSAPS_PUB_${kid}`]: publicKey
+        .export({ format: 'pem', type: 'pkcs1' })
+        .toString(),
+    }
+
+    await withEnv(env, async () => {
+      const ks = new EnvKeyStore()
+      const svc = new JsonWebTokenService(ks)
+      const jwt = await svc.sign(
+        { role: 'user' },
+        { alg: 'PS256', expiresIn: '5m', issuer: 'me', audience: 'you' },
+      )
+      const out = await svc.verify(jwt, { issuer: 'me', audience: 'you' })
+      expect(out.payload.role).toBe('user')
+    })
+  })
+
   it('verifies via local JWKS (in-memory JWK) with matching kid', async () => {
     const { privateKey, publicKey } = generateKeyPairSync('ed25519')
     const kid = 'K1'
@@ -166,6 +193,81 @@ describe('JsonWebTokenService', () => {
     })
   })
 
+  it('normalises numeric expiresIn values', async () => {
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+    const kid = 'K1'
+    const env = {
+      CRYPTO_ACTIVE_KID: kid,
+      CRYPTO_ALLOWED_KIDS_AES: '',
+      CRYPTO_ALLOWED_KIDS_SIGN: '',
+      [`CRYPTO_ED25519_PRIV_PEM_${kid}`]: privateKey
+        .export({ format: 'pem', type: 'pkcs8' })
+        .toString(),
+      [`CRYPTO_ED25519_PUB_PEM_${kid}`]: publicKey
+        .export({ format: 'pem', type: 'spki' })
+        .toString(),
+    }
+
+    await withEnv(env, async () => {
+      const ks = new EnvKeyStore()
+      const svc = new JsonWebTokenService(ks)
+      const jwt = await svc.sign({ data: true }, { expiresIn: 120 })
+      const decoded = decodeJwt(jwt)
+      expect(decoded.exp).toBe(120)
+    })
+  })
+
+  it('normalises millisecond expiresIn values', async () => {
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+    const kid = 'K1'
+    const env = {
+      CRYPTO_ACTIVE_KID: kid,
+      CRYPTO_ALLOWED_KIDS_AES: '',
+      CRYPTO_ALLOWED_KIDS_SIGN: '',
+      [`CRYPTO_ED25519_PRIV_PEM_${kid}`]: privateKey
+        .export({ format: 'pem', type: 'pkcs8' })
+        .toString(),
+      [`CRYPTO_ED25519_PUB_PEM_${kid}`]: publicKey
+        .export({ format: 'pem', type: 'spki' })
+        .toString(),
+    }
+
+    await withEnv(env, async () => {
+      const ks = new EnvKeyStore()
+      const svc = new JsonWebTokenService(ks)
+      const jwt = await svc.sign({ data: true }, { expiresIn: '500ms' })
+      const decoded = decodeJwt(jwt)
+      const exp = decoded.exp as number
+      const iat = decoded.iat as number
+      expect(exp - iat).toBeGreaterThan(0)
+      expect(exp - iat).toBeLessThanOrEqual(1)
+    })
+  })
+
+  it('falls back to default expiration when expiresIn is blank', async () => {
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+    const kid = 'K1'
+    const env = {
+      CRYPTO_ACTIVE_KID: kid,
+      CRYPTO_ALLOWED_KIDS_AES: '',
+      CRYPTO_ALLOWED_KIDS_SIGN: '',
+      [`CRYPTO_ED25519_PRIV_PEM_${kid}`]: privateKey
+        .export({ format: 'pem', type: 'pkcs8' })
+        .toString(),
+      [`CRYPTO_ED25519_PUB_PEM_${kid}`]: publicKey
+        .export({ format: 'pem', type: 'spki' })
+        .toString(),
+    }
+
+    await withEnv(env, async () => {
+      const ks = new EnvKeyStore()
+      const svc = new JsonWebTokenService(ks)
+      const jwt = await svc.sign({ foo: 'bar' }, { expiresIn: '   ' })
+      const decoded = decodeJwt(jwt)
+      expect(decoded.exp).toBeDefined()
+    })
+  })
+
   it('verifies via remote JWKS (mocked) using jwksUrls', async () => {
     const { privateKey, publicKey } = generateKeyPairSync('ed25519')
     const kid = 'K1'
@@ -202,6 +304,44 @@ describe('JsonWebTokenService', () => {
         audience: 'you',
       })
       expect(out.payload.x).toBe(1)
+      spy.mockRestore()
+    })
+  })
+
+  it('verifies via issuerJwks when remote JWKS succeeds', async () => {
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+    const kid = 'K1'
+    const env = {
+      CRYPTO_ACTIVE_KID: kid,
+      CRYPTO_ALLOWED_KIDS_AES: '',
+      CRYPTO_ALLOWED_KIDS_SIGN: '',
+      [`CRYPTO_ED25519_PRIV_PEM_${kid}`]: privateKey
+        .export({ format: 'pem', type: 'pkcs8' })
+        .toString(),
+      [`CRYPTO_ED25519_PUB_PEM_${kid}`]: publicKey
+        .export({ format: 'pem', type: 'spki' })
+        .toString(),
+    }
+
+    await withEnv(env, async () => {
+      const ks = new EnvKeyStore()
+      const svc = new JsonWebTokenService(ks)
+      const jwt = await svc.sign({ value: 42 }, { issuer: 'issuer-a', audience: 'aud' })
+
+      const jose = await import('jose')
+      const spy = jest
+        .spyOn(jose, 'createRemoteJWKSet')
+        .mockReturnValue(
+          (async () =>
+            publicKey as unknown as import('jose').KeyLike) as unknown as ReturnType<
+            typeof jest.spyOn
+          >,
+        ) as unknown as ReturnType<typeof jest.spyOn>
+
+      const out = await svc.verify(jwt, {
+        issuerJwks: [{ issuer: 'issuer-a', jwksUrl: 'https://issuer.example/jwks' }],
+      })
+      expect(out.payload.value).toBe(42)
       spy.mockRestore()
     })
   })

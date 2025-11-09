@@ -7,6 +7,7 @@ import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
+import { CryptoError } from '../errors/crypto.error'
 import { base64UrlEncode } from '../utils/encoding'
 
 import { FileKeyStore } from './file-key-store'
@@ -174,5 +175,63 @@ describe('FileKeyStore', () => {
     expect(ks.getActiveKidFor('AES-256-GCM')).toBe('K1')
     expect(ks.getSymmetricKey('AES-256-GCM', 'K1')).toBeDefined()
     expect(ks.getHmacKey('HMAC-SHA256', 'K1')).toBeDefined()
+  })
+
+  it('rejects short HMAC key material with descriptive error', async () => {
+    const root = await mkdtemp('fks-short-hmac')
+    await fs.writeFile(join(root, 'active_kid'), 'K1')
+    await fs.writeFile(join(root, 'allowed_kids_aes'), 'K1')
+    await fs.writeFile(join(root, 'allowed_kids_sign'), '')
+    await fs.mkdir(join(root, 'aes'), { recursive: true })
+    await fs.mkdir(join(root, 'hmac'), { recursive: true })
+    await fs.writeFile(join(root, 'aes', 'K1.b64u'), base64UrlEncode(Buffer.alloc(32)))
+    await fs.writeFile(join(root, 'hmac', 'K1.b64u'), base64UrlEncode(Buffer.alloc(16)))
+    const ks = new FileKeyStore({ directory: root })
+    await expect(ks.reload()).rejects.toThrow('HMAC key must be >=32 bytes')
+  })
+
+  it('getAllowedKidsFor returns signing set for signing algorithms', async () => {
+    const root = await mkdtemp('fks-signing-allowed')
+    await fs.writeFile(join(root, 'active_kid'), 'K1')
+    await fs.writeFile(join(root, 'allowed_kids_aes'), '')
+    await fs.writeFile(join(root, 'allowed_kids_sign'), 'K1,K2')
+    await fs.mkdir(join(root, 'ed25519'), { recursive: true })
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+    await writePem(
+      root,
+      'ed25519/priv-K1.pem',
+      privateKey.export({ format: 'pem', type: 'pkcs8' }).toString(),
+    )
+    await writePem(
+      root,
+      'ed25519/pub-K1.pem',
+      publicKey.export({ format: 'pem', type: 'spki' }).toString(),
+    )
+
+    const ks = new FileKeyStore({ directory: root })
+    await ks.reload()
+    expect(ks.getAllowedKidsFor('Ed25519')).toEqual(expect.arrayContaining(['K1', 'K2']))
+  })
+
+  it('throws UNSUPPORTED_ALG when requesting unknown algorithms', async () => {
+    const root = await mkdtemp('fks-unsupported')
+    await fs.writeFile(join(root, 'active_kid'), 'K1')
+    await fs.writeFile(join(root, 'allowed_kids_aes'), 'K1')
+    await fs.writeFile(join(root, 'allowed_kids_sign'), '')
+    await fs.mkdir(join(root, 'aes'), { recursive: true })
+    await fs.mkdir(join(root, 'hmac'), { recursive: true })
+    await fs.writeFile(join(root, 'aes', 'K1.b64u'), base64UrlEncode(Buffer.alloc(32)))
+    await fs.writeFile(join(root, 'hmac', 'K1.b64u'), base64UrlEncode(Buffer.alloc(32)))
+    const ks = new FileKeyStore({ directory: root })
+    await ks.reload()
+    expect(() =>
+      ks.getSymmetricKey(
+        'AES-128-GCM' as unknown as import('../types/alg').SymmetricAlg,
+        'K1',
+      ),
+    ).toThrow(CryptoError)
+    expect(() =>
+      ks.getHmacKey('HMAC-SHA1' as import('../types/alg').HmacAlg, 'K1'),
+    ).toThrow(CryptoError)
   })
 })
